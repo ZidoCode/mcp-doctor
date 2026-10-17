@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-doctor"
+version = "0.1.0"
+description = "One command, every MCP audit - session hygiene, wire shapes, name collisions. Zero dependencies."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+authors = [{ name = "ZidoCode" }]
+keywords = ["mcp", "model-context-protocol", "audit", "doctor", "jsonrpc", "llm", "agent"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+mcp-doctor = "mcp_doctor:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["mcp_doctor.py", "mcp_session_audit.py", "mcp_schema_audit.py", "mcp_collision.py"]
+sources = ["."]
