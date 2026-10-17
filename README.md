@@ -2,7 +2,7 @@
 
 **One command, every MCP audit — session hygiene, wire shapes, name collisions.**
 
-[![PyPI](https://img.shields.io/pypi/v/mcp-doctor?cacheSeconds=300)](https://pypi.org/project/mcp-doctor/)
+[![PyPI](https://img.shields.io/pypi/v/mcpmedic?cacheSeconds=300)](https://pypi.org/project/mcpmedic/)
 [![CI](https://github.com/ZidoCode/mcp-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/ZidoCode/mcp-doctor/actions)
 
 MCP integrations break in three places and none of them crash:
@@ -16,7 +16,7 @@ MCP integrations break in three places and none of them crash:
 ## Install
 
 ```
-pip install mcp-doctor
+pip install mcpmedic
 ```
 
 ## Usage
