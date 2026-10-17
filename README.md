@@ -1,0 +1,48 @@
+# mcp-doctor
+
+**One command, every MCP audit — session hygiene, wire shapes, name collisions.**
+
+[![PyPI](https://img.shields.io/pypi/v/mcp-doctor?cacheSeconds=300)](https://pypi.org/project/mcp-doctor/)
+[![CI](https://github.com/ZidoCode/mcp-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/ZidoCode/mcp-doctor/actions)
+
+MCP integrations break in three places and none of them crash:
+
+| Where | What breaks | Auditor |
+|---|---|---|
+| **Recorded session** | dangling tool_call_id poisons later requests ([opencode #44852](https://github.com/anomalyco/opencode/issues/44852)), swallowed `isError` ([zeroclaw #7122](https://github.com/zeroclaw-labs/zeroclaw/pull/7122)), error-channel confusion ([memoria #258](https://github.com/matrixorigin/memoria/issues/258)) | `session` — [mcp-session-audit](https://github.com/ZidoCode/mcp-session-audit) |
+| **Advertised listings** | schemas that make strict clients silently reject tools ([gitlab-mcp #286](https://github.com/zereight/gitlab-mcp/issues/286), [langfuse #13804](https://github.com/langfuse/langfuse/issues/13804), [strapi #27395](https://github.com/strapi/strapi/issues/27395)) | `schema` — [mcp-schema-audit](https://github.com/ZidoCode/mcp-schema-audit) |
+| **Tool names** | collision between servers makes the agent call the wrong tool ([VSCode #324992](https://github.com/microsoft/vscode/issues/324992), Copilot #11480) | `collide` — [mcp-collision](https://github.com/ZidoCode/mcp-collision) |
+
+## Install
+
+```
+pip install mcp-doctor
+```
+
+## Usage
+
+```
+mcp-doctor check recording.jsonl                  # session + schema, one pass
+mcp-doctor session recording.jsonl                # session hygiene only
+mcp-doctor schema recording.jsonl                 # wire-shape conformance only
+mcp-doctor collide --client claude                # name collisions across installed servers
+```
+
+Input: JSONL of recorded MCP messages — a CI log, a debug dump, a user-reported
+session file. No live server needed.
+
+```jsonl
+{"direction":"request","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}
+{"direction":"response","id":1,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"srv","version":"1.0"}}}
+{"direction":"response","id":2,"result":{"tools":[{"name":"search","inputSchema":{"type":"object","properties":{}}}]}}
+```
+
+Exit codes (CI-friendly): **0** clean · **1** warnings · **2** critical.
+
+## Member auditors
+
+- [mcp-session-audit](https://github.com/ZidoCode/mcp-session-audit) — dangling calls, orphan/duplicate responses, isError swallowed, error-as-text, unknown tools
+- [mcp-schema-audit](https://github.com/ZidoCode/mcp-schema-audit) — empty schemas, root type violations, draft-07 tuples, duplicate names, protocol version sanity
+- [mcp-collision](https://github.com/ZidoCode/mcp-collision) — predicts tool-name collisions before your agent does
+
+MIT License.
