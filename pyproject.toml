@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mcp-doctor"
+name = "mcpmedic"
 version = "0.1.0"
 description = "One command, every MCP audit - session hygiene, wire shapes, name collisions. Zero dependencies."
 readme = "README.md"
@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.scripts]
-mcp-doctor = "mcp_doctor:main"
+mcpmedic = "mcp_doctor:main"
 
 [tool.hatch.build.targets.wheel]
 only-include = ["mcp_doctor.py", "mcp_session_audit.py", "mcp_schema_audit.py", "mcp_collision.py"]
