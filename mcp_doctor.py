@@ -30,6 +30,7 @@ import sys
 
 import mcp_session_audit
 import mcp_schema_audit
+from recording_io import read_recording
 
 def _version():
     """Report the invoked name and the installed distribution version."""
@@ -50,24 +51,25 @@ def _version():
     return f"{_prog()} unknown"
 
 
-def _load_jsonl(path):
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        return [ln for ln in (l.strip() for l in f) if ln]
-
-
 def cmd_session(args):
-    return mcp_session_audit.report(args.recording,
-                                    mcp_session_audit.audit(_load_jsonl(args.recording)))
+    lines, rc = read_recording(args.recording)
+    if rc:
+        return rc
+    return mcp_session_audit.report(args.recording, mcp_session_audit.audit(lines))
 
 
 def cmd_schema(args):
-    return mcp_schema_audit.report(args.recording,
-                                   mcp_schema_audit.audit(_load_jsonl(args.recording)))
+    lines, rc = read_recording(args.recording)
+    if rc:
+        return rc
+    return mcp_schema_audit.report(args.recording, mcp_schema_audit.audit(lines))
 
 
 def cmd_check(args):
     """Session + schema on the same recording, one combined report."""
-    lines = _load_jsonl(args.recording)
+    lines, rc = read_recording(args.recording)
+    if rc:
+        return rc
     s_findings = mcp_session_audit.audit(list(lines))
     sch_findings = mcp_schema_audit.audit(list(lines))
     combined = s_findings + sch_findings

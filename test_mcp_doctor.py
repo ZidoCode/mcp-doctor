@@ -185,6 +185,40 @@ class TestCLI(unittest.TestCase):
         r = self._run()
         self.assertNotEqual(r.returncode, 0)
 
+    def test_missing_recording_is_a_clean_error(self):
+        missing = os.path.join(self.d, "nope.jsonl")
+        for cmd in ("session", "schema", "check"):
+            r = self._run(cmd, missing)
+            self.assertEqual(r.returncode, 2, f"{cmd}: {r.stdout}{r.stderr}")
+            self.assertIn("recording not found", r.stderr)
+            self.assertNotIn("Traceback", r.stderr)
+
+    def test_directory_as_recording_is_a_clean_error(self):
+        for cmd in ("session", "schema", "check"):
+            r = self._run(cmd, self.d)
+            self.assertEqual(r.returncode, 2, f"{cmd}: {r.stdout}{r.stderr}")
+            self.assertIn("is a directory", r.stderr)
+            self.assertNotIn("Traceback", r.stderr)
+
+    def test_empty_recording_is_an_error_not_a_pass(self):
+        empty = os.path.join(self.d, "empty.jsonl")
+        open(empty, "w").close()
+        for cmd in ("session", "schema", "check"):
+            r = self._run(cmd, empty)
+            self.assertEqual(r.returncode, 2, f"{cmd} said: {r.stdout}")
+            self.assertIn("recording is empty", r.stderr)
+            self.assertNotIn("ALL CLEAR", r.stdout)
+
+    def test_standalone_auditors_also_reject_empty_recording(self):
+        empty = os.path.join(self.d, "empty.jsonl")
+        open(empty, "w").close()
+        here = os.path.dirname(os.path.abspath(self.script))
+        for mod in ("mcp_session_audit.py", "mcp_schema_audit.py"):
+            r = subprocess.run([sys.executable, os.path.join(here, mod), empty],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2, f"{mod}: {r.stdout}")
+            self.assertNotIn("ALL CLEAR", r.stdout)
+
     def test_version_prefix_follows_invoked_name(self):
         # argv[0] is what a console script (or a shell alias) sets; assert the
         # version line uses it instead of a hardcoded distribution name.

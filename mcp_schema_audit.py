@@ -34,6 +34,8 @@ Exit codes: 0 clean, 1 warnings only, 2 any CRITICAL.
 import json
 import sys
 
+from recording_io import read_recording
+
 CRITICAL = "CRITICAL"
 WARNING = "WARNING"
 INFO = "INFO"
@@ -205,17 +207,15 @@ def report(path, findings):
     return 1
 
 
-def load_lines(path):
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        return [ln for ln in (l.strip() for l in f) if ln]
-
-
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
-    return report(argv[0], audit(load_lines(argv[0])))
+    lines, rc = read_recording(argv[0])
+    if rc:
+        return rc
+    return report(argv[0], audit(lines))
 
 
 if __name__ == "__main__":
