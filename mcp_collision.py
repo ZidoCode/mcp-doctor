@@ -31,10 +31,12 @@ Exit codes:
 import argparse
 import json
 import os
+import queue
 import re
 import subprocess
 import sys
-import tempfile
+import threading
+import time
 
 
 # ---------------------------------------------------------------- sanitize
@@ -57,23 +59,57 @@ def sanitize(client, server, tool):
 
 def list_tools(command, cwd=None, env_extra=None, timeout=20):
     """Spawn an MCP stdio server, initialize, return its tools/list.
-    Returns (tools, error). tools = list of {name, description}."""
+    Returns (tools, error). tools = list of {name, description}.
+    `timeout` is a hard deadline in seconds for the whole handshake
+    (initialize + tools/list). A server that spawns but never answers is
+    killed at the deadline and reported as timed out, never hung on.
+    Frames are read on a daemon thread so a blocked readline cannot
+    defeat the deadline, and every frame is validated as a JSON object
+    before any field is touched."""
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
     try:
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, cwd=cwd, env=env, text=True)
-    except OSError as e:
+    except (OSError, TypeError, ValueError) as e:
         return None, f"cannot spawn {command[0]!r}: {e}"
+
+    _TIMEOUT = object()
+    frames = queue.Queue()
+
+    def _reader():
+        try:
+            for line in proc.stdout:
+                frames.put(line)
+        except Exception:
+            pass
+        finally:
+            frames.put(None)  # EOF sentinel: no more frames will ever arrive
+
+    threading.Thread(target=_reader, daemon=True).start()
+    deadline = time.monotonic() + max(1, timeout)
+
+    def _kill():
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
     def send(obj):
         proc.stdin.write(json.dumps(obj) + "\n")
         proc.stdin.flush()
 
     def recv():
-        line = proc.stdout.readline()
-        if not line:
+        """Next frame: dict, None on EOF/invalid JSON, _TIMEOUT on deadline."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return _TIMEOUT
+        try:
+            line = frames.get(timeout=remaining)
+        except queue.Empty:
+            return _TIMEOUT
+        if line is None:
             return None
         try:
             return json.loads(line)
@@ -86,27 +122,113 @@ def list_tools(command, cwd=None, env_extra=None, timeout=20):
             "capabilities": {},
             "clientInfo": {"name": "mcp-collision", "version": "0.1"}}})
         resp = recv()
-        if not resp or "result" not in (resp or {}):
-            return None, f"no initialize response ({(resp or {}).get('error', {}).get('message', 'timeout/invalid')})"
+        if resp is _TIMEOUT:
+            _kill()
+            return None, f"timed out after {timeout}s waiting for initialize"
+        if not isinstance(resp, dict):
+            return None, "invalid initialize response (not a JSON object)"
+        if "result" not in resp:
+            err = resp.get("error")
+            msg = err.get("message") if isinstance(err, dict) else "timeout/invalid"
+            return None, f"no initialize response ({msg})"
         send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         # tolerate notifications between response frames
         for _ in range(10):
             resp = recv()
-            if resp is None:
+            if resp is _TIMEOUT:
+                _kill()
+                return None, f"timed out after {timeout}s waiting for tools/list"
+            if resp is None or not isinstance(resp, dict):
                 break
             if resp.get("id") == 2:
                 break
-        if not resp or resp.get("id") != 2:
+        if not isinstance(resp, dict) or resp.get("id") != 2:
             return None, "no tools/list response"
-        tools = resp["result"].get("tools") or []
+        if "error" in resp:
+            err = resp.get("error")
+            msg = err.get("message") if isinstance(err, dict) else "unknown error"
+            return None, f"tools/list failed ({msg})"
+        result = resp.get("result")
+        if not isinstance(result, dict):
+            return None, "invalid tools/list response (result is not an object)"
+        tools = result.get("tools")
+        if tools is None:
+            tools = []
+        if not isinstance(tools, list):
+            return None, "invalid tools/list response (tools is not a list)"
         return tools, (None if tools else "returned no tools")
+    except (BrokenPipeError, OSError) as e:
+        return None, f"server closed the connection during handshake ({e})"
     finally:
+        # Close stdin first so a cooperative server exits on EOF; kill a
+        # hung one after the grace period; only then close stdout, once
+        # the reader thread can no longer be blocked in a pipe read
+        # (closing it earlier stalls the whole call on a sleeping server).
         try:
             proc.stdin.close()
+        except Exception:
+            pass
+        try:
             proc.wait(timeout=5)
         except Exception:
-            proc.kill()
+            _kill()
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+
+
+def _strip_jsonc(text):
+    """Strip JSONC comments and trailing commas, respecting string literals.
+
+    The old regexes stripped // anywhere, so a URL inside a string value
+    ("https://…") corrupted valid configs into unparseable JSON. This
+    single-pass scanner only treats comment markers and commas as syntax
+    when outside a string; escapes inside strings are preserved."""
+    out = []
+    i, n = 0, len(text)
+    in_str = False
+    while i < n:
+        ch = text[i]
+        if in_str:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            end = text.find("*/", i + 2)
+            if end == -1:
+                break
+            i = end + 2
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def load_config(path):
@@ -114,10 +236,7 @@ def load_config(path):
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     # tolerate JSONC: strip // and /* */ comments, trailing commas
-    text = re.sub(r"//[^\n]*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = re.sub(r",(\s*[}\]])", r"\1", text)
-    cfg = json.loads(text)
+    cfg = json.loads(_strip_jsonc(text))
     servers = cfg.get("mcpServers") or cfg.get("mcp_servers") or {}
     if not isinstance(servers, dict):
         raise ValueError("mcpServers is not an object")
@@ -164,11 +283,39 @@ def main(argv=None):
     if args.cmd == "check":
         tool_map = {}
         for f in args.files:
-            name = os.path.splitext(os.path.basename(f))[0]
-            with open(f, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            tools = data if isinstance(data, list) else data.get("tools", [])
-            tool_map[name] = [t if isinstance(t, str) else t.get("name", "?") for t in tools]
+            stem = os.path.splitext(os.path.basename(f))[0]
+            name = stem
+            if name in tool_map:
+                # Same basename in two directories used to silently
+                # overwrite the first file's tools, hiding collisions.
+                parent = os.path.basename(os.path.dirname(os.path.abspath(f)))
+                if parent:
+                    name = f"{stem} ({parent})"
+            suffix = 2
+            while name in tool_map:
+                name = f"{stem} ({suffix})"
+                suffix += 1
+            try:
+                with open(f, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except OSError as e:
+                print(f"error: cannot read tool list {f}: {e}", file=sys.stderr)
+                return 2
+            except ValueError as e:
+                print(f"error: tool list is not valid JSON: {f} ({e})", file=sys.stderr)
+                return 2
+            if isinstance(data, list):
+                tools = data
+            elif isinstance(data, dict) and isinstance(data.get("tools"), list):
+                tools = data["tools"]
+            else:
+                print(f"error: tool list {f} is neither a list nor an object "
+                      "with a tools list", file=sys.stderr)
+                return 2
+            tool_map[name] = [
+                t if isinstance(t, str)
+                else (t.get("name", "?") if isinstance(t, dict) else "?")
+                for t in tools]
         return _report(tool_map, args.client, args.json)
 
     # scan
@@ -187,12 +334,26 @@ def main(argv=None):
     tool_map = {}
     failures = []
     for name, spec in servers.items():
+        # A malformed server entry used to crash the whole scan with a
+        # traceback (args as a string, entry not an object, …). Treat it
+        # like any other uninspectable server: skip it, exit incomplete.
+        if not isinstance(spec, dict):
+            failures.append((name, "server entry is not an object — skipped"))
+            continue
         cmd = spec.get("command")
-        if not cmd:
+        if not isinstance(cmd, str) or not cmd:
             failures.append((name, "not a stdio server (no command) — remote servers skipped"))
             continue
-        command = [cmd] + (spec.get("args") or [])
-        tools, err = list_tools(command, env_extra=spec.get("env"), timeout=args.timeout)
+        server_args = spec.get("args") or []
+        if not isinstance(server_args, list) or not all(isinstance(a, str) for a in server_args):
+            failures.append((name, "server args is not a list of strings — skipped"))
+            continue
+        env = spec.get("env")
+        if env is not None and not isinstance(env, dict):
+            failures.append((name, "server env is not an object — skipped"))
+            continue
+        command = [cmd] + server_args
+        tools, err = list_tools(command, env_extra=env, timeout=args.timeout)
         if tools is not None:
             # The server answered. An empty inventory is data, not a gap: record it.
             tool_map[name] = [t.get("name", "?") for t in tools]

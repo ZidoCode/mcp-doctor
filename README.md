@@ -25,7 +25,8 @@ pip install mcpmedic
 mcp-doctor check recording.jsonl                  # session + schema, one pass
 mcp-doctor session recording.jsonl                # session hygiene only
 mcp-doctor schema recording.jsonl                 # wire-shape conformance only
-mcp-doctor collide --client claude                # name collisions across installed servers
+mcp-doctor collide config.json --client claude    # name collisions across installed servers
+mcp-doctor collide --tools a.json b.json          # collisions across pre-dumped tool lists
 ```
 
 Input: JSONL of recorded MCP messages — a CI log, a debug dump, a user-reported
@@ -37,12 +38,21 @@ session file. No live server needed.
 {"direction":"response","id":2,"result":{"tools":[{"name":"search","inputSchema":{"type":"object","properties":{}}}]}}
 ```
 
-Exit codes (CI-friendly): **0** clean · **1** warnings · **2** critical.
+Exit codes (CI-friendly): **0** clean · **1** warnings, or an incomplete
+`collide` scan (a server could not be inspected) · **2** critical. A real
+collision (2) outranks an incomplete scan (1).
 
 ## Member auditors
 
 - [mcp-session-audit](https://github.com/ZidoCode/mcp-session-audit) — dangling calls, orphan/duplicate responses, isError swallowed, error-as-text, unknown tools
 - [mcp-schema-audit](https://github.com/ZidoCode/mcp-schema-audit) — empty schemas, root type violations, draft-07 tuples, duplicate names, protocol version sanity
 - [mcp-collision](https://github.com/ZidoCode/mcp-collision) — predicts tool-name collisions before your agent does
+
+## Development
+
+```
+python -m unittest        # full suite, no extra dependencies needed
+python -m build --sdist   # sdist contents are pinned in pyproject.toml
+```
 
 MIT License.

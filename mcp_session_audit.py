@@ -61,12 +61,27 @@ def _err_text(result):
     return "\n".join(parts)
 
 
+def _id_sort_key(rid):
+    """Total order over JSON-RPC ids (int, float, str, bool).
+
+    Plain sorted() raises TypeError on mixed int/str ids, and JSON-RPC
+    allows both, so a recording with id 1 and id "x" used to crash the
+    whole audit. Numbers keep numeric order; everything else sorts
+    lexicographically after them."""
+    if isinstance(rid, bool):
+        return (2, str(rid))
+    if isinstance(rid, int):
+        return (0, rid)
+    if isinstance(rid, float):
+        return (1, rid)
+    return (2, str(rid))
+
+
 def audit(lines):
     """Audit a list of parsed JSONL lines. Returns list of (severity, code, msg)."""
     findings = []
     requests = {}       # id -> method
     responded = set()   # ids that have any response
-    error_responded = set()
     known_tools = None
     exec_failures_as_rpc = 0
 
@@ -91,8 +106,12 @@ def audit(lines):
         if direction == "response" or (method is None and "result" in line):
             result = line.get("result")
             if isinstance(result, dict) and isinstance(result.get("tools"), list):
-                known_tools = {t.get("name") for t in result["tools"]
-                               if isinstance(t, dict)}
+                # Union, never replace: a session can list tools more than
+                # once (reconnect, second server), and a call to a tool from
+                # an earlier listing is not unknown.
+                listed = {t.get("name") for t in result["tools"]
+                          if isinstance(t, dict) and isinstance(t.get("name"), str)}
+                known_tools = listed if known_tools is None else known_tools | listed
                 if rid is not None and rid not in requests:
                     requests[rid] = "tools/list"
             elif isinstance(result, dict) and "serverInfo" in result:
@@ -144,7 +163,6 @@ def audit(lines):
         responded.add(rid)
 
         if has_error:
-            error_responded.add(rid)
             err = line["error"]
             if not isinstance(err, dict) or "code" not in err or "message" not in err:
                 findings.append((CRITICAL, "malformed-error",
@@ -176,18 +194,17 @@ def audit(lines):
                                      "output (mcp-era-probe channel-3 behavior)"))
 
     # dangling / orphan pairing
-    for rid, method in sorted(requests.items()):
+    for rid, method in sorted(requests.items(), key=lambda kv: _id_sort_key(kv[0])):
         if rid not in responded:
             sev = CRITICAL if method == "tools/call" else WARNING
             findings.append((sev, "dangling-call",
                              f"request id {rid} ({method}) never got a response — "
                              "dangling tool_call_id poisons all later requests "
                              "(opencode #44852)"))
-    for rid in sorted(responded - set(requests)):
-        if rid not in error_responded or requests:
-            findings.append((WARNING, "orphan-response",
-                             f"response for id {rid} but no matching request — "
-                             "recorder dropped the request or ids desynced"))
+    for rid in sorted(responded - set(requests), key=_id_sort_key):
+        findings.append((WARNING, "orphan-response",
+                         f"response for id {rid} but no matching request — "
+                         "recorder dropped the request or ids desynced"))
 
     if exec_failures_as_rpc >= 2:
         findings.append((WARNING, "exec-failure-as-rpc-error",

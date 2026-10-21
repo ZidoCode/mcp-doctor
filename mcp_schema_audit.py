@@ -20,8 +20,9 @@ mcp-session-audit):
 Checks:
   1. inputSchema missing or {}            — clients reject or drop the tool
   2. inputSchema.type missing/not "object" — TS SDK rejects (langfuse #13804)
-  3. draft-07 dialect + tuple items:[...]  — strict 2020-12 clients reject
-                                            everything (strapi #27395)
+  3. tuple items:[...]  — invalid under 2020-12 (the default dialect), and
+                            rejected by strict clients even when draft-07
+                            is declared (strapi #27395)
   4. duplicate tool names
   5. protocolVersion echoed / negotiated that is not a known MCP revision
      (go-sdk #1033 echoed 2026-07-28 through the legacy handshake)
@@ -69,29 +70,40 @@ def _schema_findings(where, schema, findings):
                          f"{where}: inputSchema.type is {schema.get('type')!r}, expected "
                          "'object' — MCP TS SDK rejects the tool (langfuse #13804)"))
     dialect = schema.get("$schema")
-    if isinstance(dialect, str) and "draft-07" in dialect:
-        # structural draft-07: tuple syntax items:[...] (invalid in 2020-12)
-        def _tuples(node, path="$"):
-            hits = []
-            if isinstance(node, dict):
-                if isinstance(node.get("items"), list):
-                    hits.append(path + ".items")
-                for k, v in node.items():
-                    hits.extend(_tuples(v, f"{path}.{k}"))
-            elif isinstance(node, list):
-                for i, v in enumerate(node):
-                    hits.extend(_tuples(v, f"{path}[{i}]"))
-            return hits
-        tuples = _tuples(schema)
-        if tuples:
+    is_draft07 = isinstance(dialect, str) and "draft-07" in dialect
+    # Tuple syntax items:[...] is invalid under 2020-12, which is the
+    # default dialect (SEP-1613) when no $schema is declared — and strict
+    # 2020-12 clients reject it even when draft-07 is declared. The old
+    # code only looked when draft-07 was declared, so the common
+    # no-$schema case slipped through entirely.
+
+    def _tuples(node, path="$"):
+        hits = []
+        if isinstance(node, dict):
+            if isinstance(node.get("items"), list):
+                hits.append(path + ".items")
+            for k, v in node.items():
+                hits.extend(_tuples(v, f"{path}.{k}"))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                hits.extend(_tuples(v, f"{path}[{i}]"))
+        return hits
+    tuples = _tuples(schema)
+    if tuples:
+        if is_draft07:
             findings.append((CRITICAL, "draft07-dialect",
                              f"{where}: advertises draft-07 with tuple syntax "
                              f"({tuples[0]}) — strict 2020-12 clients reject the tool "
                              "(strapi #27395, TS SDK #2084)"))
         else:
-            findings.append((WARNING, "draft07-dialect",
-                             f"{where}: advertises draft-07 — SEP-1613 default is "
-                             "2020-12; strict validators may reject"))
+            findings.append((CRITICAL, "tuple-items",
+                             f"{where}: tuple syntax ({tuples[0]}) is invalid "
+                             "under the 2020-12 default dialect — strict clients "
+                             "reject the tool"))
+    elif is_draft07:
+        findings.append((WARNING, "draft07-dialect",
+                         f"{where}: advertises draft-07 — SEP-1613 default is "
+                         "2020-12; strict validators may reject"))
 
 
 def audit(lines):
@@ -170,7 +182,10 @@ def audit(lines):
                     findings.append((CRITICAL, "duplicate-tool",
                                      f"line {n}: duplicate tool name '{name}' (first seen "
                                      f"line {names[name]}) — only one can be called"))
-                names[name] = n
+                else:
+                    # Keep the FIRST line: overwriting here used to make the
+                    # third occurrence report "first seen" at the second.
+                    names[name] = n
                 _schema_findings(f"tool '{name}' (line {n})", t.get("inputSchema"),
                                  findings)
 

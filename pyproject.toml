@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpmedic"
-version = "0.1.5"
+version = "0.2.0"
 description = "One command, every MCP audit - session hygiene, wire shapes, name collisions. Zero dependencies."
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,3 +27,25 @@ mcp-doctor = "mcp_doctor:main"
 [tool.hatch.build.targets.wheel]
 only-include = ["mcp_doctor.py", "mcp_session_audit.py", "mcp_schema_audit.py", "mcp_collision.py", "recording_io.py"]
 sources = ["."]
+
+[tool.hatch.build.targets.sdist]
+# Pin the sdist file list. Without this, hatchling walks the build directory
+# and ships whatever is lying in it — a stale ci.yml left at the repo root went
+# out in every release up to 0.1.5, and .github/ rides along by default.
+only-include = [
+  "mcp_doctor.py",
+  "mcp_session_audit.py",
+  "mcp_schema_audit.py",
+  "mcp_collision.py",
+  "recording_io.py",
+  "test_mcp_doctor.py",
+  "test_exit_codes.py",
+  "test_hardening.py",
+  "README.md",
+  "LICENSE",
+  "CHANGELOG.md",
+  "SECURITY.md",
+  # hatchling ships .gitignore in the sdist regardless; pin it explicitly
+  # so the CI gate's exact-content check stays true.
+  ".gitignore",
+]

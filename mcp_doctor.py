@@ -137,8 +137,10 @@ def cmd_collide(args):
         return 2
 
     argv = ["scan", args.config, "--client", args.client]
-    if args.timeout:
-        argv += ["--timeout", str(args.timeout)]
+    # Always forward the timeout (collision clamps to >= 1). The old
+    # `if args.timeout:` silently turned an explicit --timeout 0 into
+    # collision's default 20.
+    argv += ["--timeout", str(args.timeout)]
     if args.json:
         argv.append("--json")
     return mcp_collision.main(argv)
