@@ -9,3 +9,35 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pytest && pytest -q
+
+  installed:
+    # Same suite, but against a real installed distribution: this is the only
+    # job that exercises the metadata branch of _version() and the console
+    # scripts that users actually invoke.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e . pytest
+      - name: both console scripts exist and report the built version
+        run: |
+          set -euo pipefail
+          mcp-doctor --version
+          mcpmedic --version
+          ! mcp-doctor --version | grep -q unknown
+          ! mcpmedic --version | grep -q unknown
+      - name: reported version matches pyproject
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys, tomllib
+          bindir = os.path.dirname(sys.executable)
+          expected = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          for script in ("mcp-doctor", "mcpmedic"):
+              exe = os.path.join(bindir, script)
+              got = subprocess.check_output([exe, "--version"], text=True).strip()
+              assert got == f"{script} {expected}", f"{got!r} != {script} {expected!r}"
+              print("ok:", got)
+          PY
+      - run: pytest -q
