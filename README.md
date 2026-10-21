@@ -21,7 +21,7 @@ pip install mcpmedic
 
 ## Names
 
-PyPI `mcpmedic` is this project. The names `mcp-doctor` and `mcp_doctor` on PyPI belong to two unrelated projects by another author (Jiansen He, 0.1.0), and PyPI has no rename. The two console scripts are `mcpmedic` and `mcp-doctor`: same entry point, installed together — no alias needed beyond that.
+PyPI `mcpmedic` is this project. The names `mcp-doctor` and `mcp_doctor` on PyPI belong to one unrelated project by another author (Jiansen He, 0.1.0) — both spellings resolve to the same distribution — and PyPI has no rename. The two console scripts are `mcpmedic` and `mcp-doctor`: same entry point, installed together — no alias needed beyond that.
 
 ## Usage
 
