@@ -195,6 +195,33 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertRegex(r.stdout.strip(), r"^mcp-doctor \d+\.\d+\.\d+")
 
+    def test_version_uses_metadata_branch(self):
+        # Covers the branch CI hits only when the package is installed, so the
+        # hardcoded-prefix regression cannot hide behind a missing metadata.
+        from unittest import mock
+        with mock.patch.object(mcp_doctor, "_prog", return_value="mcp-doctor"):
+            with mock.patch("importlib.metadata.version", return_value="9.9.9"):
+                self.assertEqual(mcp_doctor._version(), "mcp-doctor 9.9.9")
+
+    def test_version_falls_back_to_pyproject(self):
+        from unittest import mock
+        import importlib.metadata
+        with mock.patch.object(mcp_doctor, "_prog", return_value="mcpmedic"):
+            with mock.patch("importlib.metadata.version",
+                            side_effect=importlib.metadata.PackageNotFoundError):
+                out = mcp_doctor._version()
+        self.assertRegex(out, r"^mcpmedic \d+\.\d+\.\d+$")
+
+    def test_version_unknown_when_pyproject_missing(self):
+        from unittest import mock
+        import importlib.metadata
+        import pathlib
+        with mock.patch.object(mcp_doctor, "_prog", return_value="mcp-doctor"):
+            with mock.patch("importlib.metadata.version",
+                            side_effect=importlib.metadata.PackageNotFoundError):
+                with mock.patch.object(pathlib.Path, "read_text", side_effect=OSError("nope")):
+                    self.assertEqual(mcp_doctor._version(), "mcp-doctor unknown")
+
     def test_version(self):
         r = self._run("--version")
         self.assertEqual(r.returncode, 0)
