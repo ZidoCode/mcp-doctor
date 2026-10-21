@@ -21,10 +21,11 @@ Cursor .mcp.json, Cline, etc.), stdio servers only (command-based).
 Zero dependencies. Python 3.8+.
 
 Exit codes:
-  0  clean — every configured server answered and no name collides
-  1  incomplete — at least one server was never inspected (refused to start,
-     timed out, or failed the MCP handshake), so the result is not conclusive
-  2  critical — a real collision was found, or the input could not be read
+  0 clean — every configured server answered (an empty inventory is fine)
+    and no name collides
+  1 incomplete — at least one server was never inspected (refused to start,
+    timed out, or failed the MCP handshake), so the result is not conclusive
+  2 critical — a real collision was found, or the input could not be read
 """
 
 import argparse
@@ -203,7 +204,13 @@ def main(argv=None):
         print(f"  skipped {name}: {err}", file=sys.stderr)
     if rc == 2:
         return 2          # a real collision outranks an incomplete scan
-    return 1 if failures else rc
+    if failures:
+        # Say it out loud: exit 1 is the difference between "no collisions"
+        # and "could not check", and stderr is the only place CI logs see it.
+        print(f"\n  verdict: {len(failures)} server(s) could not be inspected — "
+              "the scan is incomplete, not clean.", file=sys.stderr)
+        return 1
+    return rc
 
 
 def _report(tool_map, client, as_json):

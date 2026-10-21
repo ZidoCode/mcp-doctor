@@ -16,12 +16,16 @@ Subcommands:
   doctor collide --tools <f.json> [...]  collision scan on pre-dumped tool lists
   doctor check   <recording.jsonl>       session + schema in one pass
 
-Each subcommand inherits its module's exit codes (0 clean / 1 warnings /
-2 critical) so CI can gate on any of them.
+Exit codes: 0 clean, 1 warnings or an incomplete audit, 2 critical.
+
+`collide` treats a server it could not inspect as incomplete (1), not clean
+(0), and lets a real collision (2) outrank it. `session`, `schema` and
+`check` inherit their auditor's 0/1/2 so CI can gate on any of them.
 """
 
 import argparse
 import json
+import os
 import sys
 
 import mcp_session_audit
@@ -152,10 +156,28 @@ class _Parser(argparse.ArgumentParser):
         self.exit(2, f"{self.prog}: error: {message}\n")
 
 
+def _prog():
+    """Name the program the user actually typed.
+
+    Both `mcpmedic` and `mcp-doctor` are installed console scripts, so a
+    hardcoded prog makes --help and usage errors name a binary the user may
+    not have invoked. Fall back to the canonical name when argv[0] is not
+    useful (empty, or a bare interpreter such as `python -m`).
+    """
+    name = os.path.basename(sys.argv[0] or "").strip()
+    if not name or name in ("-c", "-m", "python", "python3"):
+        return "mcpmedic"
+    if name.endswith(".py"):
+        # A direct `python mcp_doctor.py` is a dev invocation, not an installed
+        # script; keep the canonical name so output stays predictable.
+        return "mcpmedic"
+    return name
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     ap = _Parser(
-        prog="mcpmedic",
+        prog=_prog(),
         description="One command, every MCP audit — session hygiene, wire shapes, name collisions.")
     ap.add_argument("--version", action="version", version=_version())
     sub = ap.add_subparsers(dest="cmd", required=True)
