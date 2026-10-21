@@ -33,6 +33,22 @@ for line in sys.stdin:
         send({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": []}})
 '''
 
+# Answers the handshake with a JSON-RPC error, so inspection fails immediately.
+# Deterministic "could not be inspected" without depending on exit timing.
+FAKE_REFUSE_SERVER = '''
+import json, sys
+def send(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    if msg.get("method") == "initialize":
+        send({"jsonrpc": "2.0", "id": msg["id"],
+              "error": {"code": -32601, "message": "handshake refused"}})
+'''
+
 
 INIT_OK = {"direction": "response", "id": 1, "result": {
     "protocolVersion": "2025-11-25", "serverInfo": {"name": "srv", "version": "1.0"}}}
@@ -86,13 +102,21 @@ class TestCLI(unittest.TestCase):
         out = json.loads(r.stdout)
         self.assertEqual(out["collisions"], {})
 
-    def test_collide_accepts_client_flag_and_config(self):
+    def test_collide_uninspected_server_exits_one(self):
+        # Deterministic stand-in for "never answered": the server refuses the
+        # handshake outright, so inspection fails without depending on
+        # process-exit timing.
+        fake = os.path.join(self.d, "refuse_server.py")
+        with open(fake, "w") as f:
+            f.write(FAKE_REFUSE_SERVER)
         p = os.path.join(self.d, "mcp.json")
         with open(p, "w") as f:
-            f.write(jl({"mcpServers": {"a": {"command": "true"}}}))
-        r = self._run("collide", p, "--client", "claude", "--timeout", "3")
-        self.assertEqual(r.returncode, 1, r.stderr)  # server never answered
+            f.write(jl({"mcpServers": {"half": {
+                "command": sys.executable, "args": [fake]}}}))
+        r = self._run("collide", p, "--client", "claude", "--timeout", "5")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)  # never inspected
         self.assertIn("client: claude", r.stdout)
+        self.assertIn("could not be inspected", r.stderr)
         self.assertNotIn("invalid choice", r.stderr)
 
     def test_collide_answered_but_empty_inventory_is_clean(self):
