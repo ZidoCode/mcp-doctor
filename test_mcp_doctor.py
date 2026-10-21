@@ -16,10 +16,10 @@ def jl(obj):
     return json.dumps(obj)
 
 
-FAKE_EMPTY_SERVER = '''
+FAKE_EMPTY_SERVER = r'''
 import json, sys
 def send(o):
-    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+    sys.stdout.write(json.dumps(o) + "\n"); sys.stdout.flush()
 for line in sys.stdin:
     try:
         msg = json.loads(line)
@@ -35,10 +35,10 @@ for line in sys.stdin:
 
 # Answers the handshake with a JSON-RPC error, so inspection fails immediately.
 # Deterministic "could not be inspected" without depending on exit timing.
-FAKE_REFUSE_SERVER = '''
+FAKE_REFUSE_SERVER = r'''
 import json, sys
 def send(o):
-    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+    sys.stdout.write(json.dumps(o) + "\n"); sys.stdout.flush()
 for line in sys.stdin:
     try:
         msg = json.loads(line)

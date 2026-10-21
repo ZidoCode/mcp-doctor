@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpmedic"
-version = "0.1.3"
+version = "0.1.4"
 description = "One command, every MCP audit - session hygiene, wire shapes, name collisions. Zero dependencies."
 readme = "README.md"
 license = { text = "MIT" }
