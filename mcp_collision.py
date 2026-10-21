@@ -19,6 +19,12 @@ Config format: any JSON with a "mcpServers" object (Claude Desktop,
 Cursor .mcp.json, Cline, etc.), stdio servers only (command-based).
 
 Zero dependencies. Python 3.8+.
+
+Exit codes:
+  0  clean — every configured server answered and no name collides
+  1  incomplete — at least one server was never inspected (refused to start,
+     timed out, or failed the MCP handshake), so the result is not conclusive
+  2  critical — a real collision was found, or the input could not be read
 """
 
 import argparse
@@ -93,7 +99,7 @@ def list_tools(command, cwd=None, env_extra=None, timeout=20):
         if not resp or resp.get("id") != 2:
             return None, "no tools/list response"
         tools = resp["result"].get("tools") or []
-        return tools, None
+        return tools, (None if tools else "returned no tools")
     finally:
         try:
             proc.stdin.close()
@@ -186,15 +192,18 @@ def main(argv=None):
             continue
         command = [cmd] + (spec.get("args") or [])
         tools, err = list_tools(command, env_extra=spec.get("env"), timeout=args.timeout)
-        if err:
-            failures.append((name, err))
-        else:
+        if tools is not None:
+            # The server answered. An empty inventory is data, not a gap: record it.
             tool_map[name] = [t.get("name", "?") for t in tools]
+        if err and err != "returned no tools":
+            failures.append((name, err))
 
     rc = _report(tool_map, args.client, args.json)
     for name, err in failures:
         print(f"  skipped {name}: {err}", file=sys.stderr)
-    return rc
+    if rc == 2:
+        return 2          # a real collision outranks an incomplete scan
+    return 1 if failures else rc
 
 
 def _report(tool_map, client, as_json):

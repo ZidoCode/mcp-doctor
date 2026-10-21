@@ -22,6 +22,7 @@ classifiers = [
 
 [project.scripts]
 mcpmedic = "mcp_doctor:main"
+mcp-doctor = "mcp_doctor:main"
 
 [tool.hatch.build.targets.wheel]
 only-include = ["mcp_doctor.py", "mcp_session_audit.py", "mcp_schema_audit.py", "mcp_collision.py"]
