@@ -53,6 +53,45 @@ class TestCLI(unittest.TestCase):
         return subprocess.run([sys.executable, self.script, *argv],
                               capture_output=True, text=True)
 
+    def test_collide_no_args_is_actionable(self):
+        r = self._run("collide")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("needs a config file", r.stderr)
+
+    def test_collide_tools_mode_runs(self):
+        p = os.path.join(self.d, "tools.json")
+        with open(p, "w") as f:
+            f.write(jl([{"name": "fs.read"}, {"name": "fs.write"},
+                        {"name": "fs.read_file"}]))
+        r = self._run("collide", "--tools", p, "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["collisions"], {})
+
+    def test_collide_accepts_client_flag_and_config(self):
+        p = os.path.join(self.d, "mcp.json")
+        with open(p, "w") as f:
+            f.write(jl({"mcpServers": {"a": {"command": "true"}}}))
+        r = self._run("collide", p, "--client", "claude", "--timeout", "3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("client: claude", r.stdout)
+        self.assertNotIn("invalid choice", r.stderr)
+
+    def test_collide_missing_tool_list_is_clean_error(self):
+        r = self._run("collide", "--tools", os.path.join(self.d, "nope.json"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("tool list not found", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_collide_invalid_tool_list_json(self):
+        p = os.path.join(self.d, "bad.json")
+        with open(p, "w") as f:
+            f.write("not json\n")
+        r = self._run("collide", "--tools", p)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not valid JSON", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
     def test_help(self):
         r = self._run("--help")
         self.assertEqual(r.returncode, 0)

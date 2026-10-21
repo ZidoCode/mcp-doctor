@@ -11,8 +11,9 @@ is the one door that runs them.
 Subcommands:
   doctor session <recording.jsonl>       session hygiene audit
   doctor schema  <recording.jsonl>       wire-shape conformance audit
-  doctor collide --client <claude|cursor|cline|raw> [--timeout N]
-                                         tool-name collision scan
+  doctor collide <config.json> [--client <claude|cursor|cline|raw>] [--timeout N]
+                                         tool-name collision scan (live servers)
+  doctor collide --tools <f.json> [...]  collision scan on pre-dumped tool lists
   doctor check   <recording.jsonl>       session + schema in one pass
 
 Each subcommand inherits its module's exit codes (0 clean / 1 warnings /
@@ -68,17 +69,76 @@ def cmd_check(args):
     return 1
 
 
+def _check_tool_lists(paths):
+    """Return an error string when a --tools path is unreadable or not JSON."""
+    for p in paths:
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
+                json.load(fh)
+        except FileNotFoundError:
+            return f"tool list not found: {p}"
+        except OSError as exc:
+            return f"cannot read tool list {p}: {exc.strerror or exc}"
+        except ValueError as exc:
+            line = getattr(exc, "lineno", "?")
+            return f"tool list is not valid JSON: {p} (line {line})"
+    return None
+
+
 def cmd_collide(args):
+    """Forward a real subcommand to mcp_collision.
+
+    mcp_collision.main() takes {scan,check} as a required positional first
+    argument. Building argv as ["--client", X] made argparse treat the
+    client *value* as the subcommand:
+
+        mcp-collision: error: argument cmd: invalid choice: 'raw'
+
+    so `doctor collide` never ran. It also had no `config` positional, which
+    scan requires.
+    """
     import mcp_collision
-    argv = ["--client", args.client]
+
+    if args.tools:
+        bad = _check_tool_lists(args.tools)
+        if bad:
+            print(f"error: {bad}", file=sys.stderr)
+            return 2
+        argv = ["check", *args.tools, "--client", args.client]
+        if args.json:
+            argv.append("--json")
+        return mcp_collision.main(argv)
+
+    if not args.config:
+        print("error: collide needs a config file (scan) or --tools <list...> (check)",
+              file=sys.stderr)
+        return 2
+
+    argv = ["scan", args.config, "--client", args.client]
     if args.timeout:
         argv += ["--timeout", str(args.timeout)]
+    if args.json:
+        argv.append("--json")
     return mcp_collision.main(argv)
+
+
+class _Parser(argparse.ArgumentParser):
+    """Usage errors exit 2, never 0.
+
+    argparse raises SystemExit(2) on a usage error; if that surfaces as a
+    normal return anywhere up the stack the process exits 0, and a CI job
+    gating on `mcp-doctor ...` sees success for a command that never ran.
+    2 also matches the documented critical exit code.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {message}\n")
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    ap = argparse.ArgumentParser(
+    ap = _Parser(
         prog="mcp-doctor",
         description="One command, every MCP audit — session hygiene, wire shapes, name collisions.")
     ap.add_argument("--version", action="version", version=f"mcp-doctor {VERSION}")
@@ -97,8 +157,13 @@ def main(argv=None):
     s.set_defaults(fn=cmd_check)
 
     s = sub.add_parser("collide", help="tool-name collision scan across installed servers")
+    s.add_argument("config", nargs="?", default=None,
+                   help="MCP config JSON with an mcpServers object (live scan)")
+    s.add_argument("--tools", nargs="+", default=None, metavar="JSON",
+                   help="pre-dumped tool lists instead of a live scan")
     s.add_argument("--client", default="claude", choices=["claude", "cursor", "cline", "raw"])
     s.add_argument("--timeout", type=int, default=20)
+    s.add_argument("--json", action="store_true", help="machine-readable output")
     s.set_defaults(fn=cmd_collide)
 
     args = ap.parse_args(argv)
