@@ -27,7 +27,23 @@ import sys
 import mcp_session_audit
 import mcp_schema_audit
 
-VERSION = "0.1.0"
+def _version():
+    """Report the installed distribution version, not a hand-edited constant."""
+    try:
+        from importlib.metadata import version as _dist_version
+        return f"mcpmedic {_dist_version('mcpmedic')}"
+    except Exception:
+        pass
+    try:
+        import pathlib
+        import re
+        pyproject = pathlib.Path(__file__).with_name("pyproject.toml")
+        m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.M)
+        if m:
+            return f"mcpmedic {m.group(1)}"
+    except Exception:
+        pass
+    return "mcpmedic unknown"
 
 
 def _load_jsonl(path):
@@ -139,9 +155,9 @@ class _Parser(argparse.ArgumentParser):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     ap = _Parser(
-        prog="mcp-doctor",
+        prog="mcpmedic",
         description="One command, every MCP audit — session hygiene, wire shapes, name collisions.")
-    ap.add_argument("--version", action="version", version=f"mcp-doctor {VERSION}")
+    ap.add_argument("--version", action="version", version=_version())
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("session", help="session hygiene audit (dangling calls, swallowed isError)")

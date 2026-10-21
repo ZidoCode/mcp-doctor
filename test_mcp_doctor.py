@@ -134,7 +134,7 @@ class TestCLI(unittest.TestCase):
     def test_version(self):
         r = self._run("--version")
         self.assertEqual(r.returncode, 0)
-        self.assertIn("0.1.0", r.stdout)
+        self.assertRegex(r.stdout.strip(), r"^mcpmedic \d+\.\d+\.\d+")
 
     def test_modules_are_same_auditors(self):
         # vendored modules must be importable and functional
