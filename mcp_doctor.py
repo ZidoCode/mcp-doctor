@@ -32,10 +32,10 @@ import mcp_session_audit
 import mcp_schema_audit
 
 def _version():
-    """Report the installed distribution version, not a hand-edited constant."""
+    """Report the invoked name and the installed distribution version."""
     try:
         from importlib.metadata import version as _dist_version
-        return f"mcpmedic {_dist_version('mcpmedic')}"
+        return f"{_prog()} {_dist_version('mcpmedic')}"
     except Exception:
         pass
     try:
@@ -44,10 +44,10 @@ def _version():
         pyproject = pathlib.Path(__file__).with_name("pyproject.toml")
         m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.M)
         if m:
-            return f"mcpmedic {m.group(1)}"
+            return f"{_prog()} {m.group(1)}"
     except Exception:
         pass
-    return "mcpmedic unknown"
+    return f"{_prog()} unknown"
 
 
 def _load_jsonl(path):

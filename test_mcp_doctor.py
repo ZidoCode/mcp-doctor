@@ -185,6 +185,16 @@ class TestCLI(unittest.TestCase):
         r = self._run()
         self.assertNotEqual(r.returncode, 0)
 
+    def test_version_prefix_follows_invoked_name(self):
+        # argv[0] is what a console script (or a shell alias) sets; assert the
+        # version line uses it instead of a hardcoded distribution name.
+        code = ("import sys; sys.argv = ['mcp-doctor', '--version']; "
+                "import mcp_doctor; mcp_doctor.main()")
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           cwd=os.path.dirname(os.path.abspath(self.script)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertRegex(r.stdout.strip(), r"^mcp-doctor \d+\.\d+\.\d+")
+
     def test_version(self):
         r = self._run("--version")
         self.assertEqual(r.returncode, 0)
