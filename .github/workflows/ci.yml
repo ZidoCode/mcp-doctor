@@ -41,3 +41,28 @@ jobs:
               print("ok:", got)
           PY
       - run: pytest -q
+      - name: built sdist ships only pinned contents
+        run: |
+          set -euo pipefail
+          pip install build
+          python -m build --sdist --outdir /tmp/sdist-probe >/dev/null
+          python - <<'PY'
+          import glob, sys, tarfile
+          f = sorted(glob.glob("/tmp/sdist-probe/*.tar.gz"))[-1]
+          names = tarfile.open(f).getnames()
+          bad = [n for n in names if n.endswith("/ci.yml") or "/.github/" in n]
+          expected = {
+              "mcp_doctor.py", "mcp_session_audit.py", "mcp_schema_audit.py",
+              "mcp_collision.py", "recording_io.py", "test_mcp_doctor.py",
+              "test_exit_codes.py", "test_hardening.py", "README.md",
+              "LICENSE", "CHANGELOG.md", "SECURITY.md", ".gitignore",
+              "pyproject.toml",
+          }
+          got = {n.split("/", 1)[1] for n in names if "/" in n}
+          missing = expected - got
+          extra = got - expected - {"PKG-INFO"}
+          if bad or missing or extra:
+              sys.exit(f"sdist content mismatch in {f}: "
+                       f"bad={bad} missing={sorted(missing)} extra={sorted(extra)}")
+          print("ok: sdist clean,", len(names), "entries")
+          PY
