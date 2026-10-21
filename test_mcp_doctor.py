@@ -16,6 +16,24 @@ def jl(obj):
     return json.dumps(obj)
 
 
+FAKE_EMPTY_SERVER = '''
+import json, sys
+def send(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    if msg.get("method") == "initialize":
+        send({"jsonrpc": "2.0", "id": msg["id"], "result": {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "serverInfo": {"name": "empty", "version": "0"}}})
+    elif msg.get("method") == "tools/list":
+        send({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": []}})
+'''
+
+
 INIT_OK = {"direction": "response", "id": 1, "result": {
     "protocolVersion": "2025-11-25", "serverInfo": {"name": "srv", "version": "1.0"}}}
 
@@ -73,9 +91,21 @@ class TestCLI(unittest.TestCase):
         with open(p, "w") as f:
             f.write(jl({"mcpServers": {"a": {"command": "true"}}}))
         r = self._run("collide", p, "--client", "claude", "--timeout", "3")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.returncode, 1, r.stderr)  # server never answered
         self.assertIn("client: claude", r.stdout)
         self.assertNotIn("invalid choice", r.stderr)
+
+    def test_collide_answered_but_empty_inventory_is_clean(self):
+        fake = os.path.join(self.d, "fake_empty.py")
+        with open(fake, "w") as f:
+            f.write(FAKE_EMPTY_SERVER)
+        p = os.path.join(self.d, "mcp.json")
+        with open(p, "w") as f:
+            f.write(jl({"mcpServers": {"empty": {
+                "command": sys.executable, "args": [fake]}}}))
+        r = self._run("collide", p, "--timeout", "5")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("1 servers, 0 tools", r.stdout)
 
     def test_collide_missing_tool_list_is_clean_error(self):
         r = self._run("collide", "--tools", os.path.join(self.d, "nope.json"))
