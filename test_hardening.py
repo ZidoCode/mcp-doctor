@@ -148,6 +148,17 @@ class TestSessionHardening(unittest.TestCase):
         findings = mcp_session_audit.audit(lines)
         self.assertFalse([f for f in findings if f[1] == "unknown-tool"])
 
+    def test_unhashable_ids_do_not_crash(self):
+        lines = [
+            jl({"direction": "request", "id": {"a": 1}, "method": "tools/call",
+                "params": {"name": "t"}}),
+            jl({"direction": "response", "id": [1, 2],
+                "result": {"content": [{"type": "text", "text": "ok"}]}}),
+        ]
+        findings = mcp_session_audit.audit(lines)
+        self.assertTrue([f for f in findings if f[1] == "dangling-call"])
+        self.assertTrue([f for f in findings if f[1] == "orphan-response"])
+
     def test_orphan_error_response_without_requests_is_flagged(self):
         lines = [jl({"direction": "response", "id": 9,
                      "error": {"code": -32603, "message": "boom"}})]

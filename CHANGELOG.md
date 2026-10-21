@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] - 2026-10-21
+
+### Fixed
+
+- `session`: JSON-RPC ids that are objects or arrays no longer crash the
+  audit (`TypeError: unhashable type`); they are coerced to a stable
+  string key before pairing. Out-of-spec ids still surface through the
+  normal dangling/orphan findings, never a traceback.
+
 ## [0.2.0] - 2026-10-21
 
 ### Fixed

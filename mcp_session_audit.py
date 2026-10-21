@@ -100,6 +100,15 @@ def audit(lines):
 
         direction = line.get("direction")
         rid = line.get("id")
+        # JSON-RPC ids must be string/number/null, but a recording can
+        # contain anything; an unhashable id (object/array) used to kill
+        # the whole audit with TypeError the moment it touched a dict
+        # or set. Coerce it to a stable string key first.
+        if rid is not None and not isinstance(rid, (str, int, float, bool)):
+            try:
+                rid = json.dumps(rid, sort_keys=True, ensure_ascii=False)
+            except (TypeError, ValueError):
+                rid = repr(rid)
         method = line.get("method")
 
         # sniff tools/list response for the known-tool set
